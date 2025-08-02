@@ -168,6 +168,8 @@ export function getSvgPathFromStroke(stroke : any) {
 }
 
 
+
+
 export function drawingElement(element: Element, roughtCanvas: RoughCanvas, ctx: CanvasRenderingContext2D ) {
     switch (element.type) {
         case "rectangle":
@@ -195,6 +197,8 @@ export function drawingElement(element: Element, roughtCanvas: RoughCanvas, ctx:
 
         case "text":
             ctx.font = "24px sans-serif";
+            console.log(element.x1, element.y1, 'while drawing')
+            
             ctx.fillText(element.text || "", element.x1, element.y1);
             ctx.textBaseline = "top"; 
             // Draw text
@@ -210,5 +214,8 @@ export function adjustmentRequired(tool: string) {
     // If the tool is rectangle or line, we need to adjust the coordinates
     return tool === "rectangle" || tool === "line";
 }
+
+
+
 
 

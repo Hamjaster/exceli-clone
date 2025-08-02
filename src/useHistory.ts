@@ -28,7 +28,7 @@ const useHistory = (initialState :any) => {
     }
   }
 
-  return [history[currentIndex], setState, undo, redo];
+  return [history[currentIndex], setState, undo, redo] ;
 }
 
 

@@ -1,4 +1,11 @@
-import { act, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  act,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type MouseEvent,
+} from "react";
 import "./App.css";
 import rough from "roughjs";
 import type { Drawable } from "roughjs/bin/core";
@@ -12,6 +19,7 @@ import {
 } from "./utiles";
 import useHistory from "./useHistory";
 import type { RoughCanvas } from "roughjs/bin/canvas";
+import useKeys from "./useKeys";
 const generator = rough.generator();
 
 export type Element = {
@@ -42,7 +50,13 @@ function App() {
   const [elements, setElements, undo, redo] = useHistory([]);
   const [showInput, setShowInput] = useState(false); // true when we want to show the input box for text writing
   const textAreaRef = useRef(null);
-  const [editingText, setEditingText] = useState(false);
+  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 }); // for panning the canvas
+  const [startPanPosition, setStartPanPosition] = useState({ x: 0, y: 0 });
+  const [pressedKeys, setPressedKeys] = useKeys();
+
+  useEffect(() => {
+    console.log(panOffset, "p");
+  }, [panOffset]);
 
   const createElement = (
     x1: number,
@@ -105,6 +119,7 @@ function App() {
       existingElement["points"]?.push({ x: x2, y: y2 });
       updatedElement = existingElement;
     } else if (elementType === "text") {
+      console.log(x2, y2, "2's");
       const existingElement = elements.find((el: Element) => el.id === id);
       console.log(existingElement, "existing");
       updatedElement = {
@@ -124,12 +139,21 @@ function App() {
     console.log(updatedElements, "updatedElements");
     setElements(updatedElements, true); // overwrite the current state
   };
+  // for updating the mouse cordinates according to panned offset
+  function getMouseCordinates(e: any): { clientX: any; clientY: any } {
+    const clientX = e.clientX - panOffset.x;
+    const clientY = e.clientY - panOffset.y;
+    return { clientX, clientY };
+  }
 
   useLayoutEffect(() => {
     const canvas = document.getElementById("canvas") as HTMLCanvasElement;
     const ctx = canvas.getContext("2d");
 
     ctx?.clearRect(0, 0, canvas.width, canvas.height);
+    ctx?.save();
+    ctx?.translate(panOffset.x, panOffset.y);
+
     const roughtCanvas = rough.canvas(canvas);
 
     elements.forEach((element: Element) => {
@@ -138,9 +162,18 @@ function App() {
         console.log("skipping rendering for element", element.id);
         return;
       }
-      drawingElement(element, roughtCanvas, ctx);
+      // Add some y-axis if its the first text, (due to the painting bug)
+      const firstText = elements.filter(
+        (el) => el.type === "text"
+      )[0] as Element;
+      if (firstText && element.id === firstText.id) {
+        drawingElement({ ...element, y1: element.y1 + 15 }, roughtCanvas, ctx);
+      } else {
+        drawingElement(element, roughtCanvas, ctx);
+      }
     });
-  }, [elements, action]);
+    ctx?.restore();
+  }, [elements, action, panOffset]);
 
   useEffect(() => {
     const textArea = textAreaRef.current;
@@ -151,20 +184,35 @@ function App() {
         // for editing purposes
         textArea.value = selectedElement?.text || "";
         console.log("focused in timeout", textArea);
-      }, 0);
+      }, 20);
     }
   }, [selectedElement, selectedElement, action]);
 
+  // Changing the pan offset on wheel scroll
   useEffect(() => {
-    console.log(selectedElement, "selectedElement in useEffect");
-  }, [selectedElement]);
+    const panFunction = (event) => {
+      setPanOffset((prevState) => ({
+        x: prevState.x - event.deltaX,
+        y: prevState.y - event.deltaY,
+      }));
+    };
 
-  useEffect(() => {
-    console.log(action, "action in useEffect");
-  }, [action]);
+    document.addEventListener("wheel", panFunction);
+    return () => {
+      document.removeEventListener("wheel", panFunction);
+    };
+  }, []);
 
   const onMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const { clientX, clientY } = e;
+    const { clientX, clientY } = getMouseCordinates(e);
+
+    if (tool === "pan" || pressedKeys.includes(" ")) {
+      console.log("panning");
+      setAction("panning");
+      setStartPanPosition({ x: clientX, y: clientY });
+      return;
+    }
+
     if (tool === "selection") {
       // Handle selection logic here
       // check if clientX, and clientY are within the bounds of any existing element
@@ -212,6 +260,7 @@ function App() {
         setElements(updatedElements, false); // overwrite the current state
       }
     } else {
+      console.log(clientX, clientY, "x,y");
       const element = createElement(
         clientX,
         clientY,
@@ -231,7 +280,7 @@ function App() {
   };
 
   const onMouseUp = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const { clientX, clientY } = e;
+    const { clientX, clientY } = getMouseCordinates(e);
     // Either editing or creating new text
     if (
       action === "selecting" &&
@@ -251,7 +300,6 @@ function App() {
     }
 
     if (action === "drawing" && adjustmentRequired(tool)) {
-      console.log("Mouse Up", e.clientX, e.clientY);
       const index = elements.length - 1;
       const lastElement = elements[index];
       const { x1, y1, x2, y2 } = lastElement;
@@ -294,20 +342,8 @@ function App() {
   };
 
   const onMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const { clientX, clientY } = e;
-    // Check if mouse is over any text
-    // if ((tool === "text" && action !== "writing") || tool === "selection") {
-    //   const elem = findElementAtPosition(clientX, clientY, elements);
-    //   if (elem) {
-    //     setEditingText(true);
-    //   }
-    //   setSelectedElement(elem);
-    // }
+    const { clientX, clientY } = getMouseCordinates(e);
 
-    // Cursor for text tool
-    if (tool === "text" && action !== "writing") {
-      e.currentTarget.style.cursor = "text";
-    }
     // Hover logic
     if (tool === "selection") {
       const position = findElementAtPosition(
@@ -351,7 +387,6 @@ function App() {
         clientY,
         tool
       );
-      console.log("Mouse Move", e.clientX, e.clientY);
     } else if (action === "selecting" && selectedElement) {
       console.log("dragging element");
       if (selectedElement.type === "pencil") {
@@ -413,19 +448,28 @@ function App() {
         x2: X2,
         y2: Y2,
       });
+    } else if (action === "panning") {
+      // NOW you're panning
+      const deltaX = clientX - startPanPosition.x;
+      const deltaY = clientY - startPanPosition.y;
+      console.log(deltaX, deltaY, "hehe");
+      setPanOffset({
+        x: panOffset.x + deltaX,
+        y: panOffset.y + deltaY,
+      });
+      return;
     }
   };
 
   const onBlur = (e) => {
     console.log("onBlur called");
     const { value } = e.target;
-    console.log("x value :", selectedElement?.x1);
-    console.log("y value :", selectedElement?.y1);
-    console.log(value, "VALUE");
+
     // calculate x2, y2 for the text
     const textWidth =
       document.getElementById("canvas").getContext("2d")?.measureText(value)
-        .width || 0;
+        .width * 2.4;
+    console.log(selectedElement?.x1, textWidth, "X ");
     const textHeight = 24; // rough estimate of text height
     updateElement(
       selectedElement?.id || "",
@@ -440,6 +484,18 @@ function App() {
     setSelectedElement(null);
     setShowInput(false);
   };
+
+  useEffect(() => {
+    const canvas = document.getElementById("canvas") as HTMLCanvasElement;
+
+    if (tool === "pan") {
+      canvas.style.cursor = action === "panning" ? "grabbing" : "grab";
+    } else if (tool === "text" && action !== "writing") {
+      canvas.style.cursor = "text";
+    } else {
+      canvas.style.cursor = "default";
+    }
+  }, [tool, action]);
 
   useEffect(() => {
     const undoRedoFunction = (event: KeyboardEvent) => {
@@ -462,90 +518,100 @@ function App() {
   }, [undo, redo]);
 
   return (
-    <>
-      {/* a radio selector to swtich between the element types */}
-      <div className="fixed flex justify-center items-center space-x-4 mb-4">
-        <label>
-          <input
-            type="radio"
-            value="line"
-            checked={tool === "line"}
-            onChange={(e) => setTooltype(e.target.value)}
-          />
-          Line
-        </label>
-        <label>
-          <input
-            type="radio"
-            value="rectangle"
-            checked={tool === "rectangle"}
-            onChange={(e) => setTooltype(e.target.value)}
-          />
-          Rectangle
-        </label>
-        <label>
-          <input
-            type="radio"
-            value="selection"
-            checked={tool === "selection"}
-            onChange={(e) => setTooltype(e.target.value)}
-          />
-          Selection
-        </label>
-        <label>
-          <input
-            type="radio"
-            value="pencil"
-            checked={tool === "pencil"}
-            onChange={(e) => setTooltype(e.target.value)}
-          />
-          Pencil{" "}
-        </label>
-        <label>
-          <input
-            type="radio"
-            value="text"
-            checked={tool === "text"}
-            onChange={(e) => setTooltype(e.target.value)}
-          />
-          Text{" "}
-        </label>
+    <div className="p-0 m-0 box-border">
+      <div className="absolute z-10">
+        <div className=" top-5 left-5 flex justify-center items-center space-x-4 mb-4">
+          <label>
+            <input
+              type="radio"
+              value="line"
+              checked={tool === "line"}
+              onChange={(e) => setTooltype(e.target.value)}
+            />
+            Line
+          </label>
+          <label>
+            <input
+              type="radio"
+              value="rectangle"
+              checked={tool === "rectangle"}
+              onChange={(e) => setTooltype(e.target.value)}
+            />
+            Rectangle
+          </label>
+          <label>
+            <input
+              type="radio"
+              value="selection"
+              checked={tool === "selection"}
+              onChange={(e) => setTooltype(e.target.value)}
+            />
+            Selection
+          </label>
+          <label>
+            <input
+              type="radio"
+              value="pencil"
+              checked={tool === "pencil"}
+              onChange={(e) => setTooltype(e.target.value)}
+            />
+            Pencil{" "}
+          </label>
+          <label>
+            <input
+              type="radio"
+              value="text"
+              checked={tool === "text"}
+              onChange={(e) => setTooltype(e.target.value)}
+            />
+            Text{" "}
+          </label>
+          <label>
+            <input
+              type="radio"
+              value="pan"
+              checked={tool === "pan"}
+              onChange={(e) => setTooltype(e.target.value)}
+            />
+            Pan{" "}
+          </label>
 
-        <button onClick={undo}>Undo</button>
-        <button onClick={redo}>Redo</button>
+          <button onClick={undo}>Undo</button>
+          <button onClick={redo}>Redo</button>
+        </div>
+        {action === "writing" && showInput && (
+          <textarea
+            ref={textAreaRef}
+            style={{
+              position: "fixed",
+              top: selectedElement?.y1 - 2 + panOffset.y,
+              left: selectedElement?.x1 - 2 + panOffset.x,
+              font: "24px sans-serif",
+              margin: 0,
+              padding: 0,
+              border: 0,
+              outline: 0,
+              resize: "auto",
+              overflow: "hidden",
+              whiteSpace: "pre",
+              background: "transparent",
+            }}
+            className="bg-yellow-50"
+            autoFocus
+            onBlur={onBlur}
+          />
+        )}
       </div>
-      {action === "writing" && showInput && (
-        <textarea
-          ref={textAreaRef}
-          style={{
-            position: "fixed",
-            top: selectedElement?.y1 - 3,
-            left: selectedElement?.x1,
-            font: "24px sans-serif",
-            margin: 0,
-            padding: 0,
-            border: 0,
-            outline: 0,
-            resize: "auto",
-            overflow: "hidden",
-            whiteSpace: "pre",
-            background: "transparent",
-          }}
-          className="bg-yellow-50"
-          autoFocus
-          onBlur={onBlur}
-        />
-      )}
       <canvas
         id="canvas"
-        width={window.innerWidth}
-        height={window.innerHeight}
-        className=" bg-white "
+        width={window.innerWidth - 3}
+        height={window.innerHeight - 3}
+        className="absolute top-0 left-0"
         onMouseDown={onMouseDown}
         onMouseUp={onMouseUp}
         onMouseMove={onMouseMove}
       ></canvas>
-    </>
+    </div>
   );
 }
 
