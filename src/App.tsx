@@ -53,6 +53,7 @@ function App() {
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 }); // for panning the canvas
   const [startPanPosition, setStartPanPosition] = useState({ x: 0, y: 0 });
   const [pressedKeys, setPressedKeys] = useKeys();
+  const [zoomedORNOT, setzoomedORNOT] = useState(false) // just to commite something
 
   useEffect(() => {
     console.log(panOffset, "p");
