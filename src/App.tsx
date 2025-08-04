@@ -12,6 +12,7 @@ import type { Drawable } from "roughjs/bin/core";
 import {
   adjustCordinates,
   adjustmentRequired,
+  distanceFormula,
   drawingElement,
   findElementAtPosition,
   generateId,
@@ -20,6 +21,8 @@ import {
 import useHistory from "./useHistory";
 import type { RoughCanvas } from "roughjs/bin/canvas";
 import useKeys from "./useKeys";
+import DisableZoom from "./DisableZoom";
+import usePreventZoom from "./DisableZoom";
 const generator = rough.generator();
 
 export type Element = {
@@ -53,11 +56,9 @@ function App() {
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 }); // for panning the canvas
   const [startPanPosition, setStartPanPosition] = useState({ x: 0, y: 0 });
   const [pressedKeys, setPressedKeys] = useKeys();
-  const [zoomedORNOT, setzoomedORNOT] = useState(false) // just to commite something
-
-  useEffect(() => {
-    console.log(panOffset, "p");
-  }, [panOffset]);
+  const [scale, setScale] = useState(1);
+  const [scaleOffset, setScaleOffset] = useState({ x: 0, y: 0 });
+  usePreventZoom();
 
   const createElement = (
     x1: number,
@@ -77,6 +78,16 @@ function App() {
         break;
       case "line":
         roughElement = generator.line(x1, y1, x2, y2);
+        break;
+      case "circle":
+        const width = Math.abs(x2 - x1);
+        const height = Math.abs(y2 - y1);
+
+        roughElement = generator.circle(
+          x1 + width / 2, // x-center
+          y1 + height / 2, // y-center
+          distanceFormula(x1, y1, x2, y2) // diameter
+        );
         break;
       case "pencil":
         points.push({ x: x1, y: y1 });
@@ -140,20 +151,33 @@ function App() {
     console.log(updatedElements, "updatedElements");
     setElements(updatedElements, true); // overwrite the current state
   };
-  // for updating the mouse cordinates according to panned offset
+  // for updating the mouse cordinates according to panned offset and zoomed offset
   function getMouseCordinates(e: any): { clientX: any; clientY: any } {
-    const clientX = e.clientX - panOffset.x;
-    const clientY = e.clientY - panOffset.y;
+    const clientX = (e.clientX - panOffset.x * scale + scaleOffset.x) / scale;
+    const clientY = (e.clientY - panOffset.y * scale + scaleOffset.y) / scale;
     return { clientX, clientY };
   }
-
+  // Rendering !
   useLayoutEffect(() => {
     const canvas = document.getElementById("canvas") as HTMLCanvasElement;
     const ctx = canvas.getContext("2d");
-
     ctx?.clearRect(0, 0, canvas.width, canvas.height);
+    // settings to find scale offsets, and zoom from the middle
+    const scaledWidth = canvas.width * scale;
+    const scaledHeight = canvas.height * scale;
+    const scaleOffsetX = (scaledWidth - canvas.width) / 2;
+    const scaleOffsetY = (scaledHeight - canvas.height) / 2;
+
+    setScaleOffset({ x: scaleOffsetX, y: scaleOffsetY });
+
     ctx?.save();
-    ctx?.translate(panOffset.x, panOffset.y);
+    // Pan according to the zoomed
+
+    ctx?.translate(
+      panOffset.x * scale - scaleOffsetX,
+      panOffset.y * scale - scaleOffsetY
+    );
+    ctx?.scale(scale, scale);
 
     const roughtCanvas = rough.canvas(canvas);
 
@@ -168,13 +192,13 @@ function App() {
         (el) => el.type === "text"
       )[0] as Element;
       if (firstText && element.id === firstText.id) {
-        drawingElement({ ...element, y1: element.y1 + 15 }, roughtCanvas, ctx);
+        drawingElement({ ...element, y1: element.y1 }, roughtCanvas, ctx);
       } else {
         drawingElement(element, roughtCanvas, ctx);
       }
     });
     ctx?.restore();
-  }, [elements, action, panOffset]);
+  }, [elements, action, panOffset, scale]);
 
   useEffect(() => {
     const textArea = textAreaRef.current;
@@ -191,24 +215,30 @@ function App() {
 
   // Changing the pan offset on wheel scroll
   useEffect(() => {
-    const panFunction = (event) => {
-      setPanOffset((prevState) => ({
-        x: prevState.x - event.deltaX,
-        y: prevState.y - event.deltaY,
-      }));
+    const panOrZoomFunction = (event) => {
+      event.preventDefault();
+      if (pressedKeys.includes("Control") || pressedKeys.includes("Meta")) {
+        console.log("ZOOMING");
+        zoom(event.deltaY * -0.003);
+      } else {
+        setTooltype("pan");
+        setPanOffset((prevState) => ({
+          x: prevState.x - event.deltaX,
+          y: prevState.y - event.deltaY,
+        }));
+      }
     };
 
-    document.addEventListener("wheel", panFunction);
+    document.addEventListener("wheel", panOrZoomFunction);
     return () => {
-      document.removeEventListener("wheel", panFunction);
+      document.removeEventListener("wheel", panOrZoomFunction);
     };
-  }, []);
+  }, [pressedKeys]);
 
   const onMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const { clientX, clientY } = getMouseCordinates(e);
 
     if (tool === "pan" || pressedKeys.includes(" ")) {
-      console.log("panning");
       setAction("panning");
       setStartPanPosition({ x: clientX, y: clientY });
       return;
@@ -354,6 +384,10 @@ function App() {
       )?.position;
       let cursor;
       switch (position) {
+        case "up":
+        case "down":
+          cursor = "ns-resize";
+          break;
         case "inside":
           cursor = "move";
           break;
@@ -432,28 +466,50 @@ function App() {
         );
       }
     } else if (action === "resizing" && selectedElement) {
-      const { x1, y1, x2, y2, position } = selectedElement;
-      const cordinates = { x1, y1, x2, y2 };
-      const { X1, Y1, X2, Y2 } = resizedCordinates(
-        cordinates,
-        clientX,
-        clientY,
-        position
-      );
+      if (selectedElement.type === "circle") {
+        console.log("resizing circle");
+        // increase or decrease the radius of selectedElement, depending
+        // whether the mouse is moving inwards or outwards
+        // x1, y1, x2, y2 are the cordinates of circle (top left and bottom right corner)
+        const { x1, y1, x2, y2 } = selectedElement;
+        const centerX = (x1 + x2) / 2;
+        const centerY = (y1 + y2) / 2;
+        const newRadius = distanceFormula(centerX, centerY, clientX, clientY);
+        const newx2 = x1 + newRadius * Math.sqrt(2);
+        const newy2 = y1 + newRadius * Math.sqrt(2);
+        updateElement(selectedElement.id, x1, y1, newx2, newy2, tool);
+        setSelectedElement({
+          ...selectedElement,
+          x1,
+          y1,
+          x2: newx2,
+          y2: newy2,
+        });
+      } else {
+        const { x1, y1, x2, y2, position } = selectedElement;
+        const cordinates = { x1, y1, x2, y2 };
+        const { X1, Y1, X2, Y2 } = resizedCordinates(
+          cordinates,
+          clientX,
+          clientY,
+          position
+        );
 
-      updateElement(selectedElement.id, X1, Y1, X2, Y2, selectedElement.type);
-      setSelectedElement({
-        ...selectedElement,
-        x1: X1,
-        y1: Y1,
-        x2: X2,
-        y2: Y2,
-      });
+        updateElement(selectedElement.id, X1, Y1, X2, Y2, selectedElement.type);
+        setSelectedElement({
+          ...selectedElement,
+          x1: X1,
+          y1: Y1,
+          x2: X2,
+          y2: Y2,
+        });
+      }
     } else if (action === "panning") {
+      const canvas = document.getElementById("canvas") as HTMLCanvasElement;
+      canvas.style.cursor = action === "panning" ? "grabbing" : "grab";
       // NOW you're panning
       const deltaX = clientX - startPanPosition.x;
       const deltaY = clientY - startPanPosition.y;
-      console.log(deltaX, deltaY, "hehe");
       setPanOffset({
         x: panOffset.x + deltaX,
         y: panOffset.y + deltaY,
@@ -518,6 +574,10 @@ function App() {
     };
   }, [undo, redo]);
 
+  const zoom = (x: number) => {
+    setScale(Math.max(scale + x, 0.1));
+  };
+
   return (
     <div className="p-0 m-0 box-border">
       <div className="absolute z-10">
@@ -561,6 +621,15 @@ function App() {
           <label>
             <input
               type="radio"
+              value="circle"
+              checked={tool === "circle"}
+              onChange={(e) => setTooltype(e.target.value)}
+            />
+            Circle{" "}
+          </label>
+          <label>
+            <input
+              type="radio"
               value="text"
               checked={tool === "text"}
               onChange={(e) => setTooltype(e.target.value)}
@@ -579,15 +648,25 @@ function App() {
 
           <button onClick={undo}>Undo</button>
           <button onClick={redo}>Redo</button>
+          <button onClick={() => zoom(-0.1)}>-</button>
+          <button>{Math.floor(scale * 100)}%</button>
+          <button onClick={() => zoom(0.1)}>+</button>
         </div>
         {action === "writing" && showInput && (
+          // Adjust the text area position acording to panned and zoomed condition
           <textarea
             ref={textAreaRef}
             style={{
               position: "fixed",
-              top: selectedElement?.y1 - 2 + panOffset.y,
-              left: selectedElement?.x1 - 2 + panOffset.x,
-              font: "24px sans-serif",
+              top:
+                (selectedElement?.y1 - 2) * scale +
+                panOffset.y * scale -
+                scaleOffset.y,
+              left:
+                selectedElement?.x1 * scale +
+                panOffset.x * scale -
+                scaleOffset.x,
+              font: `${24 * scale}px sans-serif`,
               margin: 0,
               padding: 0,
               border: 0,

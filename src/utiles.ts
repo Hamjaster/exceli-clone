@@ -25,9 +25,29 @@ const onLine = (x1 : number, y1 : number, x2 : number, y2 : number, x: number, y
 
 }
 
+function getCircleSide(
+  cx: number,
+  cy: number,
+  radius: number,
+  x: number,
+  y: number,
+  tolerance = 5
+): "up" | "down" |null{
+  const dist = distanceFormula(cx, cy, x, y);
+  
+
+  const isOnEdge = Math.abs(dist - radius) <= tolerance;
+  if (!isOnEdge) {
+    return null;
+  }
+
+  return y < cy ? "up" : "down";
+}
 
 const positionWithinElement = (x: number, y: number, element: Element) : string  => {
     const { x1, y1, x2, y2, type } = element;
+    // x,y --> mouse positions
+    // x1, y1, and x2, y2 --> element cordinates
     if (type === "rectangle") {
         // check if point is at top-left, bottom-right, top-right, bottom-left or inside the rectangle
         const isTopLeft = isPointNear(x, y, x1, y1);
@@ -46,6 +66,24 @@ const positionWithinElement = (x: number, y: number, element: Element) : string 
         }
         return x >= x1 && x <= x2 && y >= y1 && y <= y2 ? "inside" : "outside";
 
+    } else if (type === "circle") {
+        
+        const radius = distanceFormula(x1, y1, x2, y2) / 2;
+        // if the center-to-point distance is less than the radius, the point is inside the circle
+        const width = x2 -x1;
+        const height = y2 - y1
+        const centerX = x1 + width / 2
+        const centerY = y1 + height / 2
+        const cToP = distanceFormula(centerX, centerY, x, y) ;
+        const isInside =  cToP <= radius ;
+        const corner = getCircleSide(centerX, centerY, radius, x, y);
+        if(corner) {
+            return corner;
+        }else{
+            return isInside ? "inside" : "outside";
+        }
+
+    
     } else if (type === "line") {
         // For a point to be within a line, the sum of two distance from the points to endpoints should be equal(approx, or thora sa greater) to distance btw endpoints
         // a, b are endpoints, c is the clicked point
@@ -74,6 +112,7 @@ const positionWithinElement = (x: number, y: number, element: Element) : string 
         // text box basically forms a rectangle
         return x >= x1 && x <= x2 && y >= y1 && y <= y2 ? "inside" : "outside";
     }
+
     else {
         return "outside"; // default case, should not happen
     }
@@ -175,6 +214,9 @@ export function drawingElement(element: Element, roughtCanvas: RoughCanvas, ctx:
         case "rectangle":
             roughtCanvas.draw(element.roughElement);
             break;
+        case "circle":
+            roughtCanvas.draw(element.roughElement);
+            break;
         case "line":
             roughtCanvas.draw(element.roughElement);
             break;
@@ -213,6 +255,10 @@ export function adjustmentRequired(tool: string) {
     // If the tool is pencil, we don't need to adjust the coordinates
     // If the tool is rectangle or line, we need to adjust the coordinates
     return tool === "rectangle" || tool === "line";
+}
+
+export function distanceFormula(x1 : number, y1 : number, x2 : number, y2 : number){
+    return Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
 }
 
 
