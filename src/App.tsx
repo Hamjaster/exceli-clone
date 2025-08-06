@@ -14,6 +14,7 @@ import {
   adjustmentRequired,
   distanceFormula,
   drawingElement,
+  elementOnBorder,
   findElementAtPosition,
   generateId,
   resizedCordinates,
@@ -23,6 +24,9 @@ import type { RoughCanvas } from "roughjs/bin/canvas";
 import useKeys from "./useKeys";
 import DisableZoom from "./DisableZoom";
 import usePreventZoom from "./DisableZoom";
+import { Button } from "./components/ui/button";
+import CanvasToolbar from "./components/Toolbar";
+import ZoomControls from "./components/ZoomControls";
 const generator = rough.generator();
 
 export type Element = {
@@ -241,6 +245,20 @@ function App() {
     if (tool === "pan" || pressedKeys.includes(" ")) {
       setAction("panning");
       setStartPanPosition({ x: clientX, y: clientY });
+      return;
+    }
+
+    if (tool === "eraser") {
+      const element = elementOnBorder(clientX, clientY, elements);
+      console.log(element, "yes");
+      // Erase when mouse is on the border of element
+      if (element) {
+        // Dont do it for rectangle
+        if (element.type === "rectangle" && element.position === "inside")
+          return;
+        const updatedElements = elements.filter((el) => el.id !== element.id);
+        setElements(updatedElements);
+      }
       return;
     }
 
@@ -466,44 +484,23 @@ function App() {
         );
       }
     } else if (action === "resizing" && selectedElement) {
-      if (selectedElement.type === "circle") {
-        console.log("resizing circle");
-        // increase or decrease the radius of selectedElement, depending
-        // whether the mouse is moving inwards or outwards
-        // x1, y1, x2, y2 are the cordinates of circle (top left and bottom right corner)
-        const { x1, y1, x2, y2 } = selectedElement;
-        const centerX = (x1 + x2) / 2;
-        const centerY = (y1 + y2) / 2;
-        const newRadius = distanceFormula(centerX, centerY, clientX, clientY);
-        const newx2 = x1 + newRadius * Math.sqrt(2);
-        const newy2 = y1 + newRadius * Math.sqrt(2);
-        updateElement(selectedElement.id, x1, y1, newx2, newy2, tool);
-        setSelectedElement({
-          ...selectedElement,
-          x1,
-          y1,
-          x2: newx2,
-          y2: newy2,
-        });
-      } else {
-        const { x1, y1, x2, y2, position } = selectedElement;
-        const cordinates = { x1, y1, x2, y2 };
-        const { X1, Y1, X2, Y2 } = resizedCordinates(
-          cordinates,
-          clientX,
-          clientY,
-          position
-        );
+      const { x1, y1, x2, y2, position } = selectedElement;
+      const cordinates = { x1, y1, x2, y2 };
+      const { X1, Y1, X2, Y2 } = resizedCordinates(
+        cordinates,
+        clientX,
+        clientY,
+        position
+      );
 
-        updateElement(selectedElement.id, X1, Y1, X2, Y2, selectedElement.type);
-        setSelectedElement({
-          ...selectedElement,
-          x1: X1,
-          y1: Y1,
-          x2: X2,
-          y2: Y2,
-        });
-      }
+      updateElement(selectedElement.id, X1, Y1, X2, Y2, selectedElement.type);
+      setSelectedElement({
+        ...selectedElement,
+        x1: X1,
+        y1: Y1,
+        x2: X2,
+        y2: Y2,
+      });
     } else if (action === "panning") {
       const canvas = document.getElementById("canvas") as HTMLCanvasElement;
       canvas.style.cursor = action === "panning" ? "grabbing" : "grab";
@@ -549,6 +546,8 @@ function App() {
       canvas.style.cursor = action === "panning" ? "grabbing" : "grab";
     } else if (tool === "text" && action !== "writing") {
       canvas.style.cursor = "text";
+    } else if (tool === "eraser") {
+      canvas.style.cursor = "crosshair";
     } else {
       canvas.style.cursor = "default";
     }
@@ -580,108 +579,37 @@ function App() {
 
   return (
     <div className="p-0 m-0 box-border">
-      <div className="absolute z-10">
-        <div className=" top-5 left-5 flex justify-center items-center space-x-4 mb-4">
-          <label>
-            <input
-              type="radio"
-              value="line"
-              checked={tool === "line"}
-              onChange={(e) => setTooltype(e.target.value)}
-            />
-            Line
-          </label>
-          <label>
-            <input
-              type="radio"
-              value="rectangle"
-              checked={tool === "rectangle"}
-              onChange={(e) => setTooltype(e.target.value)}
-            />
-            Rectangle
-          </label>
-          <label>
-            <input
-              type="radio"
-              value="selection"
-              checked={tool === "selection"}
-              onChange={(e) => setTooltype(e.target.value)}
-            />
-            Selection
-          </label>
-          <label>
-            <input
-              type="radio"
-              value="pencil"
-              checked={tool === "pencil"}
-              onChange={(e) => setTooltype(e.target.value)}
-            />
-            Pencil{" "}
-          </label>
-          <label>
-            <input
-              type="radio"
-              value="circle"
-              checked={tool === "circle"}
-              onChange={(e) => setTooltype(e.target.value)}
-            />
-            Circle{" "}
-          </label>
-          <label>
-            <input
-              type="radio"
-              value="text"
-              checked={tool === "text"}
-              onChange={(e) => setTooltype(e.target.value)}
-            />
-            Text{" "}
-          </label>
-          <label>
-            <input
-              type="radio"
-              value="pan"
-              checked={tool === "pan"}
-              onChange={(e) => setTooltype(e.target.value)}
-            />
-            Pan{" "}
-          </label>
+      <CanvasToolbar activeTool={tool} onToolChange={setTooltype} />
+      <ZoomControls zoom={zoom} scale={scale} undo={undo} redo={redo} />
 
-          <button onClick={undo}>Undo</button>
-          <button onClick={redo}>Redo</button>
-          <button onClick={() => zoom(-0.1)}>-</button>
-          <button>{Math.floor(scale * 100)}%</button>
-          <button onClick={() => zoom(0.1)}>+</button>
-        </div>
-        {action === "writing" && showInput && (
-          // Adjust the text area position acording to panned and zoomed condition
-          <textarea
-            ref={textAreaRef}
-            style={{
-              position: "fixed",
-              top:
-                (selectedElement?.y1 - 2) * scale +
-                panOffset.y * scale -
-                scaleOffset.y,
-              left:
-                selectedElement?.x1 * scale +
-                panOffset.x * scale -
-                scaleOffset.x,
-              font: `${24 * scale}px sans-serif`,
-              margin: 0,
-              padding: 0,
-              border: 0,
-              outline: 0,
-              resize: "auto",
-              overflow: "hidden",
-              whiteSpace: "pre",
-              background: "transparent",
-            }}
-            className="bg-yellow-50"
-            autoFocus
-            onBlur={onBlur}
-          />
-        )}
-      </div>
+      {action === "writing" && showInput && (
+        // Adjust the text area position acording to panned and zoomed condition
+        <textarea
+          ref={textAreaRef}
+          style={{
+            position: "fixed",
+            top:
+              (selectedElement?.y1 - 2) * scale +
+              panOffset.y * scale -
+              scaleOffset.y,
+            left:
+              selectedElement?.x1 * scale + panOffset.x * scale - scaleOffset.x,
+            font: `${24 * scale}px sans-serif`,
+            margin: 0,
+            padding: 0,
+            border: 0,
+            outline: 0,
+            resize: "auto",
+            overflow: "hidden",
+            whiteSpace: "pre",
+            background: "transparent",
+          }}
+          className="bg-yellow-50"
+          autoFocus
+          onBlur={onBlur}
+        />
+      )}
+
       <canvas
         id="canvas"
         width={window.innerWidth - 3}

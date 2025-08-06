@@ -14,6 +14,11 @@ export function findElementAtPosition(x: number, y: number, elements: Element[])
     }
     
 }
+export function elementOnBorder(x: number, y: number, elements: Element[]) {
+    const existingElement = elements.find(element => isOnBorder(x, y, element) !== false)
+   return existingElement;
+    
+}
 
 const onLine = (x1 : number, y1 : number, x2 : number, y2 : number, x: number, y: number, offset : number = 1): boolean => {
     const a = { x: x1, y: y1 };
@@ -77,11 +82,9 @@ const positionWithinElement = (x: number, y: number, element: Element) : string 
         const cToP = distanceFormula(centerX, centerY, x, y) ;
         const isInside =  cToP <= radius ;
         const corner = getCircleSide(centerX, centerY, radius, x, y);
-        if(corner) {
-            return corner;
-        }else{
+     
             return isInside ? "inside" : "outside";
-        }
+      
 
     
     } else if (type === "line") {
@@ -115,6 +118,65 @@ const positionWithinElement = (x: number, y: number, element: Element) : string 
 
     else {
         return "outside"; // default case, should not happen
+    }
+
+}
+
+const isOnBorder = (x: number, y: number, element: Element) : boolean  => {
+    const { x1, y1, x2, y2, type } = element;
+    // x,y --> mouse positions
+    // x1, y1, and x2, y2 --> element cordinates
+    const tolerance = 5; // pixels tolerance for border detection
+
+    if (type === "rectangle") {
+        // Return true if x, y lies on the border/outline of rectangle
+        const onLeft = onLine(x1, y1, x1, y2, x, y, tolerance);
+        const onRight = onLine(x2, y1, x2, y2, x, y, tolerance);
+        const onTop = onLine(x1, y1, x2, y1, x, y, tolerance);
+        const onBottom = onLine(x1, y2, x2, y2, x, y, tolerance);
+        return onLeft || onRight || onTop || onBottom;
+     
+
+    } else if (type === "circle") {
+        // Return true if x, y lies on the circumference/border of circle
+       // Find center and radius
+    const cx = (x1 + x2) / 2;
+    const cy = (y1 + y2) / 2;
+    const radius = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2) / 2;
+
+    // Distance from mouse to center
+    const dx = x - cx;
+    const dy = y - cy;
+    const distToCenter = Math.sqrt(dx * dx + dy * dy);
+
+    // Check if the point is on the circumference (within tolerance)
+    return Math.abs(distToCenter - radius) <= tolerance;
+
+
+    } else if (type === "line") {
+        // For a point to be within a line, the sum of two distance from the points to endpoints should be equal(approx, or thora sa greater) to distance btw endpoints
+        // a, b are endpoints, c is the clicked point
+        const on = onLine(x1, y1, x2, y2, x, y);
+      
+
+        return on  ? true : false; // Adjust the threshold as needed
+    }
+    else if (type === "pencil") {
+        if(!element.points || element.points.length === 0) return false; 
+        const btwAnyPoints = element.points.some((point, index) => {
+            const nextPoint = element.points[index + 1]
+            const on = onLine(point.x, point.y, nextPoint?.x , nextPoint?.y, x, y, 5);
+            return on;
+        })
+        return btwAnyPoints ? true : false; // If the point is on any of the pencil stroke points, return inside
+    }
+    else if(type  === "text") {
+        // text box basically forms a rectangle
+        return x >= x1 && x <= x2 && y >= y1 && y <= y2 ? true :false;
+    }
+
+    else {
+        return false; // default case, should not happen
     }
 
 }
@@ -241,8 +303,8 @@ export function drawingElement(element: Element, roughtCanvas: RoughCanvas, ctx:
             ctx.font = "24px sans-serif";
             console.log(element.x1, element.y1, 'while drawing')
             
-            ctx.fillText(element.text || "", element.x1, element.y1);
             ctx.textBaseline = "top"; 
+            ctx.fillText(element.text || "", element.x1, element.y1);
             // Draw text
 
         default:
