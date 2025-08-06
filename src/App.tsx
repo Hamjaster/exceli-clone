@@ -60,7 +60,7 @@ function App() {
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 }); // for panning the canvas
   const [startPanPosition, setStartPanPosition] = useState({ x: 0, y: 0 });
   const [pressedKeys, setPressedKeys] = useKeys();
-  const [scale, setScale] = useState(1);
+  const [scale, setScale] = useState(1.7);
   const [scaleOffset, setScaleOffset] = useState({ x: 0, y: 0 });
   usePreventZoom();
 
@@ -84,12 +84,14 @@ function App() {
         roughElement = generator.line(x1, y1, x2, y2);
         break;
       case "circle":
-        const width = Math.abs(x2 - x1);
-        const height = Math.abs(y2 - y1);
+        const towardsRight = x2 > x1 && y2 > y1 ? true : false;
+
+        const width = towardsRight ? x2 - x1 : x1 - x2;
+        const height = towardsRight ? y2 - y1 : y1 - y2;
 
         roughElement = generator.circle(
-          x1 + width / 2, // x-center
-          y1 + height / 2, // y-center
+          towardsRight ? x1 + width / 2 : x2 + width / 2, // x-center
+          towardsRight ? y1 + height / 2 : y2 + height / 2, // y-center
           distanceFormula(x1, y1, x2, y2) // diameter
         );
         break;
@@ -131,13 +133,10 @@ function App() {
     let updatedElement: Element;
     if (elementType === "pencil") {
       const existingElement = elements.find((el: Element) => el.id === id);
-      console.log(existingElement, "existing");
       existingElement["points"]?.push({ x: x2, y: y2 });
       updatedElement = existingElement;
     } else if (elementType === "text") {
-      console.log(x2, y2, "2's");
       const existingElement = elements.find((el: Element) => el.id === id);
-      console.log(existingElement, "existing");
       updatedElement = {
         ...existingElement,
         x1,
@@ -152,7 +151,6 @@ function App() {
     const updatedElements = [...elements];
     const index = updatedElements.findIndex((el) => el.id === id);
     updatedElements[index] = updatedElement;
-    console.log(updatedElements, "updatedElements");
     setElements(updatedElements, true); // overwrite the current state
   };
   // for updating the mouse cordinates according to panned offset and zoomed offset
@@ -186,9 +184,9 @@ function App() {
     const roughtCanvas = rough.canvas(canvas);
 
     elements.forEach((element: Element) => {
+      console.log("rendering elements");
       // if you're editing, dont render the element (that is actually present behind the text area)
       if (action === "writing" && selectedElement?.id === element.id) {
-        console.log("skipping rendering for element", element.id);
         return;
       }
       // Add some y-axis if its the first text, (due to the painting bug)
@@ -212,7 +210,6 @@ function App() {
         textArea.focus();
         // for editing purposes
         textArea.value = selectedElement?.text || "";
-        console.log("focused in timeout", textArea);
       }, 20);
     }
   }, [selectedElement, selectedElement, action]);
@@ -222,7 +219,6 @@ function App() {
     const panOrZoomFunction = (event) => {
       event.preventDefault();
       if (pressedKeys.includes("Control") || pressedKeys.includes("Meta")) {
-        console.log("ZOOMING");
         zoom(event.deltaY * -0.003);
       } else {
         setTooltype("pan");
@@ -250,7 +246,6 @@ function App() {
 
     if (tool === "eraser") {
       const element = elementOnBorder(clientX, clientY, elements);
-      console.log(element, "yes");
       // Erase when mouse is on the border of element
       if (element) {
         // Dont do it for rectangle
@@ -268,7 +263,6 @@ function App() {
       const selectedElement = findElementAtPosition(clientX, clientY, elements);
       // For moving/selecting
       if (selectedElement && selectedElement.position === "inside") {
-        console.log("Element selected", selectedElement);
         let updatedSelectedElement = { ...selectedElement };
         // use of offset is necessary to displace the element from the point where it was clicked
         if (selectedElement.type === "pencil") {
@@ -309,7 +303,6 @@ function App() {
         setElements(updatedElements, false); // overwrite the current state
       }
     } else {
-      console.log(clientX, clientY, "x,y");
       const element = createElement(
         clientX,
         clientY,
@@ -320,7 +313,6 @@ function App() {
         ""
       );
       if (showInput) return; // (for writing case only) If input is shown, do not create a new element
-      console.log("elem creatd with ", element.x1, element.y1);
       setSelectedElement(element);
       const updatedElements = [...elements, element];
       setElements(updatedElements);
@@ -337,12 +329,10 @@ function App() {
       clientX - selectedElement.offsetX === selectedElement.x1 &&
       clientY - selectedElement.offsetY === selectedElement.y1
     ) {
-      console.log("text editing");
       if (!selectedElement) {
         const elem = findElementAtPosition(clientX, clientY, elements);
         elem && setSelectedElement(elem);
       }
-      console.log("text editing");
       setShowInput(true);
       setAction("writing");
       return;
@@ -352,23 +342,13 @@ function App() {
       const index = elements.length - 1;
       const lastElement = elements[index];
       const { x1, y1, x2, y2 } = lastElement;
-      console.log(x1, y1, x2, y2);
 
       const { x1: X, x2: Y, y1: X2, y2: Y2 } = adjustCordinates(lastElement);
-      console.log(X, X2, Y, Y2, "news");
 
       updateElement(lastElement.id, X, X2, Y, Y2, lastElement.type);
-      console.log("updated!");
     }
     // also adjust cordinates while resizing, to keep reseting x,y as convention.
     else if (action === "resizing" && selectedElement) {
-      console.log(
-        selectedElement.x1,
-        selectedElement.y1,
-        selectedElement.x2,
-        selectedElement.y2,
-        "HEH"
-      );
       const {
         x1: X,
         x2: Y,
@@ -385,7 +365,6 @@ function App() {
     // When writing, we dont want to leave writing when mouse is up
     // MouseDown makes it writing, but mouse up should not change it (bascially solves the timing problem)
     if (action === "writing") {
-      console.log("JUST RAN");
       setShowInput(true);
     }
   };
@@ -441,7 +420,6 @@ function App() {
         tool
       );
     } else if (action === "selecting" && selectedElement) {
-      console.log("dragging element");
       if (selectedElement.type === "pencil") {
         const { offsetsX = [], offsetsY = [] } = selectedElement;
         const points = selectedElement.points || [];
@@ -454,7 +432,6 @@ function App() {
         const existingElement = elements.find(
           (el) => el.id === selectedElement.id
         );
-        console.log(existingElement, "existing");
         existingElement["points"] = newPoints;
         const updatedElement = existingElement;
         const updatedElements = [...elements];
@@ -462,13 +439,11 @@ function App() {
           (el) => el.id === selectedElement.id
         );
         updatedElements[index] = updatedElement;
-        console.log(updatedElements, "updatedElements");
         setElements(updatedElements, true); // overwrite the current state
       } else {
         const { x1, y1, x2, y2 } = selectedElement;
         const width = x2 - x1;
         const height = y2 - y1;
-        console.log("ID :-", selectedElement.id);
         // off set needed to displace the element from the point where it was clicked
         const { offsetX = 0, offsetY = 0 } = selectedElement;
         const newX1 = clientX - offsetX;
@@ -516,14 +491,12 @@ function App() {
   };
 
   const onBlur = (e) => {
-    console.log("onBlur called");
     const { value } = e.target;
 
     // calculate x2, y2 for the text
     const textWidth =
       document.getElementById("canvas").getContext("2d")?.measureText(value)
         .width * 2.4;
-    console.log(selectedElement?.x1, textWidth, "X ");
     const textHeight = 24; // rough estimate of text height
     updateElement(
       selectedElement?.id || "",
@@ -581,7 +554,12 @@ function App() {
     <div className="p-0 m-0 box-border">
       <CanvasToolbar activeTool={tool} onToolChange={setTooltype} />
       <ZoomControls zoom={zoom} scale={scale} undo={undo} redo={redo} />
-
+      <div className="font-inter font-light text-lg text-gray-500 absolute z-10 bottom-2 -translate-1/2 left-1/2">
+        Made with ❤ By{" "}
+        <a target="_blank" href="https://hamzashah.vercel.app">
+          Hamza
+        </a>
+      </div>
       {action === "writing" && showInput && (
         // Adjust the text area position acording to panned and zoomed condition
         <textarea

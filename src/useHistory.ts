@@ -3,7 +3,7 @@ import { useState } from 'react';
 const useHistory = (initialState :any) => {
   const [history, setHistory] = useState([initialState]); // {}, [{},{}], [{}, {}, {}]
   const [currentIndex, setCurrentIndex] = useState(0)
-
+  console.log(history, 'history');
   const undo = () => setCurrentIndex(prev => Math.max(prev - 1, 0));
   const redo = () => setCurrentIndex(prev => Math.min(prev + 1, history.length - 1));
  
